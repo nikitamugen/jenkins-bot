@@ -17,7 +17,8 @@
     "botbuilder-azure": "^3.0.4",
     "eventsource": "^1.0.5",
     "rest-request": "^1.0.12",
-    "restify": "^5.0.0"
+    "restify": "^5.0.0",
+    "unirest": "^0.5.1"
   },
   "devDependencies": {
     "request": "^2.81.0",

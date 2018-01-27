@@ -7,6 +7,7 @@ const builder = require('botbuilder');
 const botbuilder_azure = require("botbuilder-azure");
 const EventSource = require("eventsource");
 const axios = require('axios');
+const unirest = require('unirest');
 
 // Setup Restify Server
 //
@@ -53,48 +54,98 @@ bot.dialog('/', [
 // Connect to the SSE Gateway, providing an optional client Id.
 const __JENKINS__  ='http://127.0.0.1:8080';
 const __CLIENTID__ = Math.random().toString(36).substring(7);
-const Request = require('rest-request');
+
+const QUEUED='QUEUED';
+const RUNNING='RUNNING';
+const SUCCESS='SUCCESS';
+const FAULT='FAULT';
+
+var connectionInfo = {
+  jenkinsUrl: __JENKINS__,
+  clientId: encodeURIComponent(__CLIENTID__),
+  username: 'root',
+  password: '123',
+  sessionInfo: undefined,
+  eventSource: undefined,
+  cookies: undefined
+};
 
 console.log(`Connect to Jenkins`);
-const connectAPI = new Request(__JENKINS__);
-connectAPI.get('sse-gateway/connect/:clientId', {clientId:__CLIENTID__})
-.then((data) => {
-    console.log(data);
+const connectUrl = `${connectionInfo.jenkinsUrl}/sse-gateway/connect?clientId=${connectionInfo.clientId}`;
+unirest.get(connectUrl)
+.auth({
+  user: connectionInfo.username,
+  pass: connectionInfo.password,
+  sendImmediately: true
+})
+.end(response => {
+  connectionInfo.jsessionid = response.body.data.jsessionid;
+  connectionInfo.cookies = response.cookies;
+  const cookieString = _cookieObjectToString(response.cookies);
 
-    const listenMethod = `${__JENKINS__}/sse-gateway/listen/${__CLIENTID__}`;
-    console.log(`Register event listener at ${listenMethod}`);
-
-    let eventSource = new EventSource(listenMethod, {withCredentials: true});
-    eventSource.addEventListener('open', function (e) {
+  console.log(`Add listeners`);
+  const listenMethod = `${connectionInfo.jenkinsUrl}/sse-gateway/listen/${connectionInfo.clientId};jsessionid=${connectionInfo.jsessionid}`;
+  connectionInfo.eventSource = new EventSource(listenMethod);
+  connectionInfo.eventSource.addEventListener('open', (e) => {
       console.log('SSE channel "open" event.', e);
       if (e.data) {
-        jenkinsSessionInfo = JSON.parse(e.data);
+        console.log(JSON.parse(e.data));
+        connectionInfo.sessionInfo = JSON.parse(e.data);
+        _doConfigure(connectionInfo);
       }
     }, false);
-    eventSource.addEventListener('configure', function (e) {
-      console.log('SSE channel "configure" ACK event (see batchId on event).', e);
+    connectionInfo.eventSource.addEventListener('job', function (e) {
+      const payload = JSON.parse(e.data);
+      const name = payload.job_name;
+      const number = payload.jenkins_object_id;
+      const status = payload.job_run_status;
+      const url = payload.jenkins_object_url;
+      if (status==QUEUED) {
+        console.log(`Задача ${name} была поставлена в очередь.`);
+      } else if (status==RUNNING) {
+        console.log(`Задача ${name} #${number} выполняется.`);
+      } else if (status==SUCCESS) {
+        console.log(`Задача ${name} #${number} завершена успешно.`);
+      } else if (status==FAULT) {
+        console.log(`Задача ${name} #${number} завершена с ошибками.`);
+      } else {
+        //console.log('job event received.', e);
+      }
     }, false);
-    eventSource.addEventListener('reload', function (e) {
-      console.log('SSE channel "reload" event received. Reloading page now.', e);
-    }, false);
-
-    var configurationBatchId = 0;
-    eventSource.addEventListener('job', function (e) {
-      console.log('SSE channel "' + channel + '" event received.', e);
-    }, false);
-
-    eventSource.addEventListener('message', function (e) {
-      console.log('SSE channel "' + channel + '" event received.', e);
-    }, false);
-
-    eventSource.addEventListener('onmessage', function (e) {
-      console.log('SSE channel "' + channel + '" event received.', e);
-    }, false);
-
-    eventSource.addEventListener('build', function (e) {
-      console.log('SSE channel "' + channel + '" event received.', e);
-    }, false);
-})
-.catch(function(error) {
-    console.log(error);  
 });
+
+function _cookieObjectToString(cookie) {
+  const exp = /jsessionid./i;
+  for (let prop in cookie) {
+    if (prop.match(exp)) {
+      return `${prop}=${cookie[prop]}`;
+    }
+  }
+  return '';
+}
+
+var configurationBatchId = 0;
+function _doConfigure(connectionInfo) {
+  console.log(`Configure channels`);
+  let job = {
+    jenkins_channel: 'job'
+  };
+  let configuration = {
+    subscribe: [job],
+    dispatcherId: connectionInfo.sessionInfo.dispatcherId
+  };
+
+  const configureUrl = `${connectionInfo.jenkinsUrl}/sse-gateway/configure?batchId=${configurationBatchId++}`;
+  unirest.post(configureUrl)
+  .auth({
+    user: connectionInfo.username,
+    pass: connectionInfo.password,
+    sendImmediately: true
+  })
+  .headers({'Cookie': _cookieObjectToString(connectionInfo.cookies)})
+  .type('json')
+  .send(configuration)
+  .end(function (response) {
+    console.log('ok');
+  });
+}
