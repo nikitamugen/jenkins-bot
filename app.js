@@ -8,23 +8,39 @@ const botbuilder_azure = require("botbuilder-azure");
 const EventSource = require("eventsource");
 const axios = require('axios');
 const unirest = require('unirest');
+const nconf = require('nconf');
+
+nconf.argv()
+   .env()
+   .file({ file: 'config.json' });
+
+function _saveAdressFilter(adress, regExpString) {
+
+}
 
 // Setup Restify Server
 //
 const server = restify.createServer();
-server.listen(process.env.port || process.env.PORT || 3978, function () {
+const port = nconf.any('port', 'PORT');
+server.listen(port || 3978, function () {
    console.log('%s listening to %s', server.name, server.url);
    console.log('MicrosoftAppId: %s', process.env.MicrosoftAppId);
 });
 
 const botName = "jenkins-bot";
+const spacesExpr = "[ ]*";
+const botNameExpr = `([@]?${botName})?${spacesExpr}`;
+const serviceInfExpr = `${spacesExpr}(<[^>]*>)*`;
 
 // Create chat connector for communicating with the Bot Framework Service
 //
+const appId = onst port = nconf.any('MicrosoftAppId', 'AppId', 'appId');
+const appPassword = onst port = nconf.any('MicrosoftAppPassword', 'AppPassword', 'appPassword');
+const botOpenIdMetadata = onst port = nconf.any('BotOpenIdMetadata', 'botOpenIdMetadata');
 const connector = new builder.ChatConnector({
-    appId: process.env.MicrosoftAppId,
-    appPassword: process.env.MicrosoftAppPassword,
-    openIdMetadata: process.env.BotOpenIdMetadata
+    appId: appId,
+    appPassword: appPassword,
+    openIdMetadata: botOpenIdMetadata
 });
 
 // Listen for messages from users 
@@ -37,12 +53,8 @@ const bot = new builder.UniversalBot(connector);
 const inMemoryStorage = new builder.MemoryBotStorage();
 bot.set('storage', inMemoryStorage); 
 
-// Register table storage
-//
-// const tableName = 'botdata';
-// const azureTableClient = new botbuilder_azure.AzureTableClient(tableName, process.env['AzureWebJobsStorage']);
-// const tableStorage = new botbuilder_azure.AzureBotStorage({ gzipData: false }, azureTableClient);
-// bot.set('storage', tableStorage);
+// ------------------------------------------------
+// Dialogs
 
 bot.dialog('/', [
 	function (session) {
@@ -51,9 +63,71 @@ bot.dialog('/', [
 	}
 ])
 
+bot.dialog('setup', [
+  function (session) {
+    session.send("Setup begin !");
+    builder.Prompts.text(session, 'Please enter an expression for filtering the required tasks');
+  },
+  function (session, results) {
+    try {
+      const regExpString = results.response.entity;
+
+      // Just to check ...
+      //
+      new RegExp(regExpString);
+
+      const address = session.message.address;
+      
+    } catch (error) {
+      const address = session.message.address;
+      say(address, error);
+    } finally {
+      session.endConversation();
+    }
+  }
+])
+.endConversationAction(
+    "endSetup", "Setup canceled !",
+    {
+      matches: new RegExp(`^${botNameExpr}(cancel|goodbye)${serviceInfExpr}$`, 'i'),
+        confirmPrompt: "This will cancel your order. Are you sure?"
+    }
+)
+.triggerAction({
+    matches: new RegExp(`^${botNameExpr}setup${serviceInfExpr}$`, 'i'),
+    onSelectAction: (session, args, next) => {
+        // Add the help dialog to the dialog stack 
+        // (override the default behavior of replacing the stack)
+        //
+        session.beginDialog(args.action, args);
+    }
+});
+
+// ------------------------------------------------
+// Jenkins client
+
 // Connect to the SSE Gateway, providing an optional client Id.
-const __JENKINS__  ='http://127.0.0.1:8080';
-const __CLIENTID__ = Math.random().toString(36).substring(7);
+function _getJenkinsRootUrl() {
+  const jenkinsRootUrl = nconf.any('jenkinsUrl', 'jenkinsRoot', 'jenkinsRootUrl');
+  const defaultUrl = 'http://127.0.0.1:8080';
+  return (jenkinsRootUrl || defaultUrl);
+}
+function _getClientId() {
+  const clientName = nconf.any('clientName');
+  const clientId = `${clientName}_id:${_getRandomId()}`;
+  return encodeURIComponent(clientId);
+}
+function _getRandomId() {
+  return Math.random().toString(36).substring(7);
+}
+function _getUsername() {
+  const username = nconf.any('username', 'userName');
+  return username;
+}
+function _getPassword() {
+  const username = nconf.get('password');
+  return username;
+}
 
 const QUEUED='QUEUED';
 const RUNNING='RUNNING';
@@ -61,10 +135,10 @@ const SUCCESS='SUCCESS';
 const FAULT='FAULT';
 
 var connectionInfo = {
-  jenkinsUrl: __JENKINS__,
-  clientId: encodeURIComponent(__CLIENTID__),
-  username: 'root',
-  password: '123',
+  jenkinsUrl: _getJenkinsRootUrl(),
+  clientId: _getClientId(),
+  username: _getUsername(),
+  password: _getPassword(),
   sessionInfo: undefined,
   eventSource: undefined,
   cookies: undefined
