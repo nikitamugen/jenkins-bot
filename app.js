@@ -8,40 +8,62 @@ const botbuilder_azure = require("botbuilder-azure");
 const EventSource = require("eventsource");
 const axios = require('axios');
 const unirest = require('unirest');
-const nconf = require('nconf');
 
+const nconf = require('nconf');
 nconf.argv()
    .env()
    .file({ file: 'config.json' });
 
-function _saveAdressFilter(adress, regExpString) {
+var knownAdresses = [];
+function _addKnownAddressAndRule(address, regExpString) {
+    // Just to check ...
+    //
+    new RegExp(regExpString);
 
+    const knownAddress = {address: address, rule: regExpString};
+    knownAdresses.push(knownAddress);
+
+    const addressesString = JSON.stringify(knownAdresses);
+    nconf.set('knownAddress', addressesString);
+
+    nconf.save();
 }
+(function _initKnownAddresses() {
+    const addressesString = nconf.get('knownAddress');
+    if (addressesString !== '' && addressesString !== null && addressesString != undefined) {
+        knownAdresses = JSON.parse(addressesString);
+    }
+    nconf.set('knownAddress', addressesString);
+})();
 
 // Setup Restify Server
 //
 const server = restify.createServer();
 const port = nconf.any('port', 'PORT');
+server.name = "localhost";
 server.listen(port || 3978, function () {
    console.log('%s listening to %s', server.name, server.url);
-   console.log('MicrosoftAppId: %s', process.env.MicrosoftAppId);
 });
 
-const botName = "jenkins-bot";
+const botName = nconf.any('clientname', 'clientName', 'botname', 'botName');
 const spacesExpr = "[ ]*";
 const botNameExpr = `([@]?${botName})?${spacesExpr}`;
 const serviceInfExpr = `${spacesExpr}(<[^>]*>)*`;
 
 // Create chat connector for communicating with the Bot Framework Service
 //
-const appId = onst port = nconf.any('MicrosoftAppId', 'AppId', 'appId');
-const appPassword = onst port = nconf.any('MicrosoftAppPassword', 'AppPassword', 'appPassword');
-const botOpenIdMetadata = onst port = nconf.any('BotOpenIdMetadata', 'botOpenIdMetadata');
+const appId = nconf.any('MicrosoftAppId', 'AppId', 'appId');
+const appPassword = nconf.any('MicrosoftAppPassword', 'AppPassword', 'appPassword');
+const botOpenIdMetadata = nconf.any('BotOpenIdMetadata', 'botOpenIdMetadata');
+console.log('MicrosoftAppId: %s', appId);
+console.log('MicrosoftAppPassword: %s', appPassword);
+console.log('openIdMetadata: %s', botOpenIdMetadata);
 const connector = new builder.ChatConnector({
     appId: appId,
     appPassword: appPassword,
     openIdMetadata: botOpenIdMetadata
 });
+console.log(connector);
 
 // Listen for messages from users 
 server.post('/api/messages', connector.listen());
@@ -58,6 +80,7 @@ bot.set('storage', inMemoryStorage);
 
 bot.dialog('/', [
 	function (session) {
+        console.log("got some");
 		const msg = `You said: "${session.message.text}". Sorry, but i didn't understand ... Please type help for instructions.`;
 		session.endConversation(msg);
 	}
@@ -70,19 +93,18 @@ bot.dialog('setup', [
   },
   function (session, results) {
     try {
-      const regExpString = results.response.entity;
-
-      // Just to check ...
-      //
-      new RegExp(regExpString);
+        console.log("results: ", results);
+      const regExpString = results.response;
+      console.log("got regex: ", regExpString);
 
       const address = session.message.address;
-      
+      console.log("address: ", address);
+
+      _addKnownAddressAndRule(address, regExpString);
+
+      session.endConversation("Setup completed !");
     } catch (error) {
-      const address = session.message.address;
-      say(address, error);
-    } finally {
-      session.endConversation();
+      session.endConversation("Setup failed ! "+error);
     }
   }
 ])
@@ -104,9 +126,108 @@ bot.dialog('setup', [
 });
 
 // ------------------------------------------------
+// Utils
+
+function sayJenkinsEvent (payload) {
+    const name = payload.job_name;
+    const number = payload.jenkins_object_id;
+    const status = payload.job_run_status;
+    const url = payload.jenkins_object_url;
+    let text = undefined;
+    let actions = [
+          {
+            "type": "Action.OpenUrl",
+            "url": `${url}`,
+            "title": "Open"
+          }
+        ];
+    if (status==QUEUED) {
+        text = `Задача ${name} была поставлена в очередь.`;
+    } else if (status==RUNNING) {
+        text = `Задача ${name} #${number} выполняется.`;
+    } else if (status==SUCCESS) {
+        text = `Задача ${name} #${number} завершена успешно.`;
+    } else if (status==FAULT) {
+        text = `Задача ${name} #${number} завершена с ошибками.`;
+        actions.push(
+          {
+            "type": "Action.OpenUrl",
+            "url": `${url}/consoleText`,
+            "title": "Show log"
+          }
+        );
+    } else {
+        return;
+    }
+    console.log(text);
+
+    // For example ...
+    const cards = [
+        {
+            'contentType': 'application/vnd.microsoft.card.adaptive',
+            'content': {
+                "$schema": "http://adaptivecards.io/schemas/adaptive-card.json",
+                "type": "AdaptiveCard",
+                "version": "1.0",
+                "body": [
+                    {
+                        "type": "Container",
+                        "items": [
+                            {
+                                "type": "TextBlock",
+                                "text": text,
+                                "weight": "bolder",
+                                "size": "large"
+                            },
+                            {
+                                "type": "TextBlock",
+                                "text": text,
+                                "weight": "bolder",
+                                "size": "medium"
+                            },
+                            {
+                                "type": "TextBlock",
+                                "text": text,
+                                "weight": "bolder",
+                            },
+                            {
+                                "type": "TextBlock",
+                                "text": text,
+                                "weight": "bolder",
+                                "size": "small"
+                            }
+                        ]
+                    }
+                ],
+                "actions": actions
+            }
+        }
+    ];
+
+    knownAdresses.forEach(knownAddress => {
+        const address = knownAddress.address;
+        const rule = knownAddress.rule;
+        if (name.match(new RegExp(rule))) {
+            say(address, text, cards);
+        }
+    });
+}
+
+function say (address, text/*, cards*/) {
+    let message = new builder.Message()
+                   .address(address)
+                   //.text(text);
+    cards.forEach(card => {
+        message.addAttachment(card);
+    });
+
+    bot.send(message);
+}
+
+// ------------------------------------------------
 // Jenkins client
 
-// Connect to the SSE Gateway, providing an optional client Id.
+// Connect to the SSE Gateway, providing an optional client Id.l
 function _getJenkinsRootUrl() {
   const jenkinsRootUrl = nconf.any('jenkinsUrl', 'jenkinsRoot', 'jenkinsRootUrl');
   const defaultUrl = 'http://127.0.0.1:8080';
@@ -170,21 +291,7 @@ unirest.get(connectUrl)
     }, false);
     connectionInfo.eventSource.addEventListener('job', function (e) {
       const payload = JSON.parse(e.data);
-      const name = payload.job_name;
-      const number = payload.jenkins_object_id;
-      const status = payload.job_run_status;
-      const url = payload.jenkins_object_url;
-      if (status==QUEUED) {
-        console.log(`Задача ${name} была поставлена в очередь.`);
-      } else if (status==RUNNING) {
-        console.log(`Задача ${name} #${number} выполняется.`);
-      } else if (status==SUCCESS) {
-        console.log(`Задача ${name} #${number} завершена успешно.`);
-      } else if (status==FAULT) {
-        console.log(`Задача ${name} #${number} завершена с ошибками.`);
-      } else {
-        //console.log('job event received.', e);
-      }
+      sayJenkinsEvent(payload);
     }, false);
 });
 
