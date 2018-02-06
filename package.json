@@ -12,10 +12,12 @@
   "license": "ISC",
   "dependencies": {
     "@jenkins-cd/sse-gateway": "0.0.21",
+    "assert": "^1.4.1",
     "axios": "^0.17.1",
     "botbuilder": "^3.13.1",
     "botbuilder-azure": "^3.0.4",
     "eventsource": "^1.0.5",
+    "nconf": "^0.10.0",
     "rest-request": "^1.0.12",
     "restify": "^5.0.0",
     "unirest": "^0.5.1"
