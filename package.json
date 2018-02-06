@@ -12,6 +12,7 @@
   "license": "ISC",
   "dependencies": {
     "@jenkins-cd/sse-gateway": "0.0.21",
+    "assert": "^1.4.1",
     "axios": "^0.17.1",
     "botbuilder": "^3.13.1",
     "botbuilder-azure": "^3.0.4",

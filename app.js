@@ -1,18 +1,13 @@
-/*-----------------------------------------------------------------------------
-A simple echo bot for the Microsoft Bot Framework. 
------------------------------------------------------------------------------*/
-
 const restify = require('restify');
 const builder = require('botbuilder');
 const botbuilder_azure = require("botbuilder-azure");
-const EventSource = require("eventsource");
 const axios = require('axios');
 const unirest = require('unirest');
 
 const nconf = require('nconf');
 nconf.argv()
-   .env()
-   .file({ file: 'config.json' });
+.env()
+.file({ file: 'config.json' });
 
 var knownAdresses = [];
 function _addKnownAddressAndRule(address, regExpString) {
@@ -42,7 +37,7 @@ const server = restify.createServer();
 const port = nconf.any('port', 'PORT');
 server.name = "localhost";
 server.listen(port || 3978, function () {
-   console.log('%s listening to %s', server.name, server.url);
+ console.log('%s listening to %s', server.name, server.url);
 });
 
 const botName = nconf.any('clientname', 'clientName', 'botname', 'botName');
@@ -63,7 +58,6 @@ const connector = new builder.ChatConnector({
     appPassword: appPassword,
     openIdMetadata: botOpenIdMetadata
 });
-console.log(connector);
 
 // Listen for messages from users 
 server.post('/api/messages', connector.listen());
@@ -80,20 +74,18 @@ bot.set('storage', inMemoryStorage);
 
 bot.dialog('/', [
 	function (session) {
-        console.log("got some");
-		const msg = `You said: "${session.message.text}". Sorry, but i didn't understand ... Please type help for instructions.`;
-		session.endConversation(msg);
-	}
-])
+        const msg = `You said: "${session.message.text}". Sorry, but i didn't understand ... Please type help for instructions.`;
+        session.endConversation(msg);
+    }
+]);
 
 bot.dialog('setup', [
   function (session) {
     session.send("Setup begin !");
     builder.Prompts.text(session, 'Please enter an expression for filtering the required tasks');
-  },
-  function (session, results) {
+},
+function (session, results) {
     try {
-        console.log("results: ", results);
       const regExpString = results.response;
       console.log("got regex: ", regExpString);
 
@@ -102,17 +94,16 @@ bot.dialog('setup', [
 
       _addKnownAddressAndRule(address, regExpString);
 
-      session.endConversation("Setup completed !");
-    } catch (error) {
-      session.endConversation("Setup failed ! "+error);
+      session.send("Setup completed !");
+  } catch (error) {
+    session.send("Setup failed ! "+error);
     }
-  }
-])
+}])
 .endConversationAction(
     "endSetup", "Setup canceled !",
     {
       matches: new RegExp(`^${botNameExpr}(cancel|goodbye)${serviceInfExpr}$`, 'i'),
-        confirmPrompt: "This will cancel your order. Are you sure?"
+      confirmPrompt: "This will cancel your order. Are you sure?"
     }
 )
 .triggerAction({
@@ -126,21 +117,28 @@ bot.dialog('setup', [
 });
 
 // ------------------------------------------------
-// Utils
+// Jenkins client
 
-function sayJenkinsEvent (payload) {
+const QUEUED='QUEUED';
+const RUNNING='RUNNING';
+const SUCCESS='SUCCESS';
+const FAULT='FAULT';
+
+const jenkinsClient = require('./jenkinsClient.js');
+const connection = new jenkinsClient.Connection();
+connection.open(payload => {
     const name = payload.job_name;
     const number = payload.jenkins_object_id;
     const status = payload.job_run_status;
     const url = payload.jenkins_object_url;
     let text = undefined;
     let actions = [
-          {
+        {
             "type": "Action.OpenUrl",
             "url": `${url}`,
             "title": "Open"
-          }
-        ];
+        }
+    ];
     if (status==QUEUED) {
         text = `Задача ${name} была поставлена в очередь.`;
     } else if (status==RUNNING) {
@@ -150,11 +148,11 @@ function sayJenkinsEvent (payload) {
     } else if (status==FAULT) {
         text = `Задача ${name} #${number} завершена с ошибками.`;
         actions.push(
-          {
-            "type": "Action.OpenUrl",
-            "url": `${url}/consoleText`,
-            "title": "Show log"
-          }
+            {
+                "type": "Action.OpenUrl",
+                "url": `${url}/consoleText`,
+                "title": "Show log"
+            }
         );
     } else {
         return;
@@ -163,170 +161,65 @@ function sayJenkinsEvent (payload) {
 
     // For example ...
     const cards = [
-        {
-            'contentType': 'application/vnd.microsoft.card.adaptive',
-            'content': {
-                "$schema": "http://adaptivecards.io/schemas/adaptive-card.json",
-                "type": "AdaptiveCard",
-                "version": "1.0",
-                "body": [
-                    {
-                        "type": "Container",
-                        "items": [
-                            {
-                                "type": "TextBlock",
-                                "text": text,
-                                "weight": "bolder",
-                                "size": "large"
-                            },
-                            {
-                                "type": "TextBlock",
-                                "text": text,
-                                "weight": "bolder",
-                                "size": "medium"
-                            },
-                            {
-                                "type": "TextBlock",
-                                "text": text,
-                                "weight": "bolder",
-                            },
-                            {
-                                "type": "TextBlock",
-                                "text": text,
-                                "weight": "bolder",
-                                "size": "small"
-                            }
-                        ]
-                    }
-                ],
-                "actions": actions
+    {
+        'contentType': 'application/vnd.microsoft.card.adaptive',
+        'content': {
+            "$schema": "http://adaptivecards.io/schemas/adaptive-card.json",
+            "type": "AdaptiveCard",
+            "version": "1.0",
+            "body": [
+            {
+                "type": "Container",
+                "items": [
+                {
+                    "type": "TextBlock",
+                    "text": text,
+                    "weight": "bolder",
+                    "size": "large"
+                },
+                {
+                    "type": "TextBlock",
+                    "text": text,
+                    "weight": "bolder",
+                    "size": "medium"
+                },
+                {
+                    "type": "TextBlock",
+                    "text": text,
+                    "weight": "bolder",
+                },
+                {
+                    "type": "TextBlock",
+                    "text": text,
+                    "weight": "bolder",
+                    "size": "small"
+                }
+                ]
             }
+            ],
+            "actions": actions
         }
+    }
     ];
 
     knownAdresses.forEach(knownAddress => {
         const address = knownAddress.address;
         const rule = knownAddress.rule;
         if (name.match(new RegExp(rule))) {
-            say(address, text, cards);
+            say(address, text/*, cards*/);
         }
     });
-}
-
-function say (address, text/*, cards*/) {
-    let message = new builder.Message()
-                   .address(address)
-                   //.text(text);
-    cards.forEach(card => {
-        message.addAttachment(card);
-    });
-
-    bot.send(message);
-}
-
-// ------------------------------------------------
-// Jenkins client
-
-// Connect to the SSE Gateway, providing an optional client Id.l
-function _getJenkinsRootUrl() {
-  const jenkinsRootUrl = nconf.any('jenkinsUrl', 'jenkinsRoot', 'jenkinsRootUrl');
-  const defaultUrl = 'http://127.0.0.1:8080';
-  return (jenkinsRootUrl || defaultUrl);
-}
-function _getClientId() {
-  const clientName = nconf.any('clientName');
-  const clientId = `${clientName}_id:${_getRandomId()}`;
-  return encodeURIComponent(clientId);
-}
-function _getRandomId() {
-  return Math.random().toString(36).substring(7);
-}
-function _getUsername() {
-  const username = nconf.any('username', 'userName');
-  return username;
-}
-function _getPassword() {
-  const username = nconf.get('password');
-  return username;
-}
-
-const QUEUED='QUEUED';
-const RUNNING='RUNNING';
-const SUCCESS='SUCCESS';
-const FAULT='FAULT';
-
-var connectionInfo = {
-  jenkinsUrl: _getJenkinsRootUrl(),
-  clientId: _getClientId(),
-  username: _getUsername(),
-  password: _getPassword(),
-  sessionInfo: undefined,
-  eventSource: undefined,
-  cookies: undefined
-};
-
-console.log(`Connect to Jenkins`);
-const connectUrl = `${connectionInfo.jenkinsUrl}/sse-gateway/connect?clientId=${connectionInfo.clientId}`;
-unirest.get(connectUrl)
-.auth({
-  user: connectionInfo.username,
-  pass: connectionInfo.password,
-  sendImmediately: true
-})
-.end(response => {
-  connectionInfo.jsessionid = response.body.data.jsessionid;
-  connectionInfo.cookies = response.cookies;
-  const cookieString = _cookieObjectToString(response.cookies);
-
-  console.log(`Add listeners`);
-  const listenMethod = `${connectionInfo.jenkinsUrl}/sse-gateway/listen/${connectionInfo.clientId};jsessionid=${connectionInfo.jsessionid}`;
-  connectionInfo.eventSource = new EventSource(listenMethod);
-  connectionInfo.eventSource.addEventListener('open', (e) => {
-      console.log('SSE channel "open" event.', e);
-      if (e.data) {
-        console.log(JSON.parse(e.data));
-        connectionInfo.sessionInfo = JSON.parse(e.data);
-        _doConfigure(connectionInfo);
-      }
-    }, false);
-    connectionInfo.eventSource.addEventListener('job', function (e) {
-      const payload = JSON.parse(e.data);
-      sayJenkinsEvent(payload);
-    }, false);
 });
 
-function _cookieObjectToString(cookie) {
-  const exp = /jsessionid./i;
-  for (let prop in cookie) {
-    if (prop.match(exp)) {
-      return `${prop}=${cookie[prop]}`;
+function say (address, text, cards) {
+    let message = new builder.Message()
+                             .address(address)
+                             .text(text);
+    if (cards !== undefined && cards !== null) {
+        cards.forEach(card => {
+            message.addAttachment(card);
+        });
     }
-  }
-  return '';
-}
 
-var configurationBatchId = 0;
-function _doConfigure(connectionInfo) {
-  console.log(`Configure channels`);
-  let job = {
-    jenkins_channel: 'job'
-  };
-  let configuration = {
-    subscribe: [job],
-    dispatcherId: connectionInfo.sessionInfo.dispatcherId
-  };
-
-  const configureUrl = `${connectionInfo.jenkinsUrl}/sse-gateway/configure?batchId=${configurationBatchId++}`;
-  unirest.post(configureUrl)
-  .auth({
-    user: connectionInfo.username,
-    pass: connectionInfo.password,
-    sendImmediately: true
-  })
-  .headers({'Cookie': _cookieObjectToString(connectionInfo.cookies)})
-  .type('json')
-  .send(configuration)
-  .end(function (response) {
-    console.log('ok');
-  });
+   bot.send(message);
 }
