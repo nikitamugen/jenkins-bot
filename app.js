@@ -77,7 +77,7 @@ bot.dialog('/', [
         const msg = `You said: "${session.message.text}". Sorry, but i didn't understand ... Please type help for instructions.`;
         session.endConversation(msg);
     }
-]);
+    ]);
 
 bot.dialog('setup', [
   function (session) {
@@ -97,15 +97,15 @@ function (session, results) {
       session.send("Setup completed !");
   } catch (error) {
     session.send("Setup failed ! "+error);
-    }
+}
 }])
 .endConversationAction(
     "endSetup", "Setup canceled !",
     {
       matches: new RegExp(`^${botNameExpr}(cancel|goodbye)${serviceInfExpr}$`, 'i'),
       confirmPrompt: "This will cancel your order. Are you sure?"
-    }
-)
+  }
+  )
 .triggerAction({
     matches: new RegExp(`^${botNameExpr}setup${serviceInfExpr}$`, 'i'),
     onSelectAction: (session, args, next) => {
@@ -126,100 +126,93 @@ const FAULT='FAULT';
 
 const jenkinsClient = require('./jenkinsClient.js');
 const connection = new jenkinsClient.Connection();
-connection.open(payload => {
-    const name = payload.job_name;
-    const number = payload.jenkins_object_id;
-    const status = payload.job_run_status;
-    const url = payload.jenkins_object_url;
-    let text = undefined;
-    let actions = [
-        {
-            "type": "Action.OpenUrl",
-            "url": `${url}`,
-            "title": "Open"
-        }
-    ];
-    if (status==QUEUED) {
-        text = `Задача ${name} была поставлена в очередь.`;
-    } else if (status==RUNNING) {
-        text = `Задача ${name} #${number} выполняется.`;
-    } else if (status==SUCCESS) {
-        text = `Задача ${name} #${number} завершена успешно.`;
-    } else if (status==FAULT) {
-        text = `Задача ${name} #${number} завершена с ошибками.`;
-        actions.push(
-            {
-                "type": "Action.OpenUrl",
-                "url": `${url}/consoleText`,
-                "title": "Show log"
-            }
-        );
-    } else {
-        return;
-    }
-    console.log(text);
 
-    // For example ...
-    const cards = [
-    {
-        'contentType': 'application/vnd.microsoft.card.adaptive',
-        'content': {
-            "$schema": "http://adaptivecards.io/schemas/adaptive-card.json",
-            "type": "AdaptiveCard",
-            "version": "1.0",
-            "body": [
-            {
-                "type": "Container",
-                "items": [
-                {
-                    "type": "TextBlock",
-                    "text": text,
-                    "weight": "bolder",
-                    "size": "large"
-                },
-                {
-                    "type": "TextBlock",
-                    "text": text,
-                    "weight": "bolder",
-                    "size": "medium"
-                },
-                {
-                    "type": "TextBlock",
-                    "text": text,
-                    "weight": "bolder",
-                },
-                {
-                    "type": "TextBlock",
-                    "text": text,
-                    "weight": "bolder",
-                    "size": "small"
-                }
-                ]
-            }
-            ],
-            "actions": actions
-        }
-    }
-    ];
+(function test() {
+    connection.test();
+    connection.getBuilds().subscribe(console.log);
+})();
+// connection.open(buildInfo => {
 
-    knownAdresses.forEach(knownAddress => {
-        const address = knownAddress.address;
-        const rule = knownAddress.rule;
-        if (name.match(new RegExp(rule))) {
-            say(address, text/*, cards*/);
-        }
-    });
-});
+//     if (buildInfo.result == QUEUED) {
+//         text = `Задача ${buildInfo.fullDisplayName} была поставлена в очередь.`;
+//     } else if (buildInfo.result == RUNNING) {
+//         text = `Задача ${buildInfo.fullDisplayName} выполняется.`;
+//     } else if (buildInfo.result == SUCCESS) {
+//         text = `Задача ${buildInfo.fullDisplayName} завершена успешно.`;
+//     } else if (buildInfo.result == FAULT) {
+//         text = `Задача ${buildInfo.fullDisplayName} завершена с ошибками.`;
+//     } else {
+//         return;
+//     }
+
+//     const buildInfoCards = getBuildInfoCard(text, buildInfo);
+//     console.log(JSON.stringify(buildInfoCards))
+//     knownAdresses.forEach(knownAddress => {
+//         const address = knownAddress.address;
+//         const rule = knownAddress.rule;
+//         if (buildInfo.fullDisplayName.match(new RegExp(rule))) {
+//             say(address, text, buildInfoCards);
+//         }
+//     });
+// });
+
+// function getBuildInfoCard(text, buildInfo) {
+
+//     items = [{
+//         "type": "TextBlock",
+//         "text": text,
+//         "weight": "bolder",
+//         "size": "medium"
+//     }];
+//     if (hasChanges(buildInfo)) {
+//         items.push(getChanges(buildInfo));
+//     }
+//     const cards = [
+//     {
+//         'contentType': 'application/vnd.microsoft.card.adaptive',
+//         'content': {
+//             "$schema": "http://adaptivecards.io/schemas/adaptive-card.json",
+//             "type": "AdaptiveCard",
+//             "version": "1.0",
+//             "body": items,
+//             "actions": [{
+//                 "type": "Action.OpenUrl",
+//                 "url": `${buildInfo.url}/consoleText`,
+//                 "title": "Show log"
+//             }]
+//         }
+//     }];
+
+//     return cards;
+// }
+
+function hasChanges(buildInfo) {
+    return (buildInfo.changeSet !== null && buildInfo.changeSet !== undefined);
+}
+function getChanges(buildInfo) {
+    if (buildInfo.changeSet) {
+        return {
+            "type": "FactSet",
+            "facts": buildInfo.changeSet.items.map(item => [
+                {title: 'commit', value: item.commitId.substring(0, 6)},
+                {title: 'author', value: item.author.fullName},
+                {title: 'message', value: item.msg},
+                ])
+        };
+    }
+    return undefined;
+}
 
 function say (address, text, cards) {
     let message = new builder.Message()
-                             .address(address)
-                             .text(text);
+    .address(address)
     if (cards !== undefined && cards !== null) {
         cards.forEach(card => {
             message.addAttachment(card);
         });
+    } else {
+        message.text(text);
     }
 
-   bot.send(message);
+    bot.send(message);
 }
