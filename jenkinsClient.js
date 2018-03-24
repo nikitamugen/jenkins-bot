@@ -5,6 +5,7 @@ const of = require('rxjs/observable/of').of;
 const merge = require('rxjs/observable/merge').merge;
 const fromPromise = require('rxjs/observable/fromPromise').fromPromise;
 const mapTo = require('rxjs/operators').mapTo;
+const map = require('rxjs/operators').map;
 const delay = require('rxjs/operators').delay;
 const take = require('rxjs/operators').take;
 const throttle = require('rxjs/operators').throttle;
@@ -12,6 +13,7 @@ const groupBy = require('rxjs/operators').groupBy;
 const mergeMap = require('rxjs/operators').mergeMap;
 const catchError = require('rxjs/operators').catchError;
 const interval = require('rxjs/observable/interval').interval;
+const debounceTime = require('rxjs/operators/debounceTime').debounceTime;
 
 const assert = require('assert');
 const unirest = require('unirest');
@@ -47,11 +49,18 @@ class Settings {
     }
     getUsername() {
         const username = nconf.any('username', 'userName');
-        return username;
+        const defaultUsername = 'root';
+        return (username || defaultUsername);
     }
     getPassword() {
-        const username = nconf.get('password');
-        return username;
+        const password = nconf.get('password');
+        const defaultPassword = '123';
+        return (password || defaultPassword);
+    }
+    getJenkinsCrumb() {
+        const crumb = nconf.get('crumb');
+        const defaultCrumb = 'a061bce7dbded1cdc4a3bd443ee2ed42';
+        return (crumb || defaultCrumb);
     }
 }
 
@@ -64,7 +73,7 @@ class Connection {
         this.sessionInfo = undefined;
         this.configurationBatchId = 0;
 
-        // outout stream
+        // out stream
         //
         this.builds = new Subject();
     }
@@ -73,67 +82,78 @@ class Connection {
         const empty = of(null);
         this.builds = merge(
             empty.pipe(
-                mapTo({url: '/job/testbuild1/93/', result: QUEUED}),
+                mapTo({url: '/job/test-build/34/', result: QUEUED}),
                 delay(200)
             ),
             empty.pipe(
-                mapTo({url: '/job/testbuild1/93/', result: RUNNING}),
+                mapTo({url: '/job/test-build/34/', result: RUNNING}),
                 delay(1000)
             ),
             empty.pipe(
-                mapTo({url: '/job/testbuild1/93/', result: SUCCESS}),
+                mapTo({url: '/job/test-build/34/', result: SUCCESS}),
                 delay(2000)
             ),
             empty.pipe(
-                mapTo({url: '/job/testbuild1/94/', result: QUEUED}),
+                mapTo({url: '/job/test-build/35/', result: QUEUED}),
                 delay(100)
             ),
             empty.pipe(
-                mapTo({url: '/job/testbuild1/94/', result: RUNNING}),
+                mapTo({url: '/job/test-build/35/', result: RUNNING}),
                 delay(150)
             ),
             empty.pipe(
-                mapTo({url: '/job/testbuild1/94/', result: FAULT}),
+                mapTo({url: '/job/test-build/35/', result: FAULT}),
                 delay(200)
             )
         );
-        //this.builds.subscribe(console.log);
     }
 
     getBuilds() {
         const groupedById = this.builds.pipe(
             groupBy( e => e.url )
         );
-        //groupedById.subscribe(console.log);
         const clearedQuickStages = groupedById.pipe( 
-            mergeMap( group => group.pipe( throttle(val=> interval(200)) ) )
-            //mergeMap( e => fromPromise(this._getBuildInfo(e)) )
+            mergeMap( group => group.pipe( debounceTime(1000) ) ),
+            mergeMap( e => fromPromise(this._getBuildInfo(e)) )
         );
         return clearedQuickStages;
     }
 
     _getBuildInfo(e) {
-        const buildInfoUrl = `${this.settings.getJenkinsUrl()}/${e.url}api/json`;
-        return unirest.post(buildInfoUrl)
+        return new Promise((resolve, reject) => {
+            const buildInfoUrl = `${this.settings.getJenkinsUrl()}/${e.url}api/json`;
+            unirest.post(buildInfoUrl)
             .auth({
                 user: this.settings.getUsername(),
                 pass: this.settings.getPassword(),
                 sendImmediately: true
             })
-            .headers({'Cookie': this.cookies})
+            .headers({
+                'Cookie': this.cookies,
+                'crumb': this.settings.getJenkinsCrumb()
+            })
             .type('json')
-            .end()
-            .exec();
+            .end((response, error) => {
+                if (response) {
+                    if (response.code === 200) {
+                        resolve(response.body);
+                    } else {
+                        reject(response.raw_body);
+                    }
+                } else if (error) {
+                    reject(error);
+                } else {
+                    reject('no response');
+                }
+            })
+        });
     }
 
     _getNextBatchID() {
         return this.configurationBatchId++;
     }
 
-    open(onEvent) {
-        assert.notEqual(onEvent, null);
-        this.onEvent = onEvent;
-
+    open() {
         this._connectInternal();
     }
 
@@ -147,7 +167,6 @@ class Connection {
             sendImmediately: true
         })
         .end(response => {
-            //console.log(response)
             this.jsessionid = response.body.data.jsessionid;
             this.cookies = this._cookieObjectToString(response.cookies);
 
@@ -163,7 +182,7 @@ class Connection {
             }, false);
             this.eventSource.addEventListener('job', e => {
                 const payload = JSON.parse(e.data);
-                this._getBuildInfo(payload);
+                this.builds.next(payload.jenkins_object_url);
             }, false);
         });
     }
@@ -185,7 +204,10 @@ class Connection {
             pass: this.settings.getPassword(),
             sendImmediately: true
         })
-        .headers({'Cookie': this.cookies})
+        .headers({
+            'Cookie': this.cookies,
+            '.crumb': this.settings.getJenkinsCrumb()
+        })
         .type('json')
         .send(configuration)
         .end(function (response) {
@@ -203,5 +225,9 @@ class Connection {
 }
 
 module.exports = {
-  Connection: Connection
+  Connection: Connection,
+  QUEUED: QUEUED,
+  RUNNING: RUNNING,
+  SUCCESS: SUCCESS,
+  FAULT: FAULT
 };

@@ -31,8 +31,8 @@ function _addKnownAddressAndRule(address, regExpString) {
     nconf.set('knownAddress', addressesString);
 })();
 
-// Setup Restify Server
-//
+Setup Restify Server
+
 const server = restify.createServer();
 const port = nconf.any('port', 'PORT');
 server.name = "localhost";
@@ -119,76 +119,70 @@ function (session, results) {
 // ------------------------------------------------
 // Jenkins client
 
-const QUEUED='QUEUED';
-const RUNNING='RUNNING';
-const SUCCESS='SUCCESS';
-const FAULT='FAULT';
-
 const jenkinsClient = require('./jenkinsClient.js');
 const connection = new jenkinsClient.Connection();
 
-(function test() {
-    connection.test();
-    connection.getBuilds().subscribe(console.log);
-})();
-// connection.open(buildInfo => {
+// (function test() {
+//     connection.test();
+//     connection.getBuilds().subscribe(console.log);
+// })();
+connection.open()
+connection.subscribe(buildInfo => {
+    if (buildInfo.result == QUEUED) {
+        text = `Задача ${buildInfo.fullDisplayName} была поставлена в очередь.`;
+    } else if (buildInfo.result == jenkinsClient.RUNNING) {
+        text = `Задача ${buildInfo.fullDisplayName} выполняется.`;
+    } else if (buildInfo.result == jenkinsClient.SUCCESS) {
+        text = `Задача ${buildInfo.fullDisplayName} завершена успешно.`;
+    } else if (buildInfo.result == jenkinsClient.FAULT) {
+        text = `Задача ${buildInfo.fullDisplayName} завершена с ошибками.`;
+    } else {
+        return;
+    }
 
-//     if (buildInfo.result == QUEUED) {
-//         text = `Задача ${buildInfo.fullDisplayName} была поставлена в очередь.`;
-//     } else if (buildInfo.result == RUNNING) {
-//         text = `Задача ${buildInfo.fullDisplayName} выполняется.`;
-//     } else if (buildInfo.result == SUCCESS) {
-//         text = `Задача ${buildInfo.fullDisplayName} завершена успешно.`;
-//     } else if (buildInfo.result == FAULT) {
-//         text = `Задача ${buildInfo.fullDisplayName} завершена с ошибками.`;
-//     } else {
-//         return;
-//     }
+    const cards = createCards(text, buildInfo);
+    knownAdresses.forEach(knownAddress => {
+        const address = knownAddress.address;
+        const rule = knownAddress.rule;
+        if (buildInfo.fullDisplayName.match(new RegExp(rule))) {
+            say(address, text, cards);
+        }
+    });
+});
 
-//     const buildInfoCards = getBuildInfoCard(text, buildInfo);
-//     console.log(JSON.stringify(buildInfoCards))
-//     knownAdresses.forEach(knownAddress => {
-//         const address = knownAddress.address;
-//         const rule = knownAddress.rule;
-//         if (buildInfo.fullDisplayName.match(new RegExp(rule))) {
-//             say(address, text, buildInfoCards);
-//         }
-//     });
-// });
+function createCards(text, buildInfo) {
+    items = [{
+        "type": "TextBlock",
+        "text": text,
+        "weight": "bolder",
+        "size": "medium"
+    }];
+    if (hasChanges(buildInfo)) {
+        items.push(getChanges(buildInfo));
+    }
+    const cards = [
+    {
+        'contentType': 'application/vnd.microsoft.card.adaptive',
+        'content': {
+            "$schema": "http://adaptivecards.io/schemas/adaptive-card.json",
+            "type": "AdaptiveCard",
+            "version": "1.0",
+            "body": items,
+            "actions": [{
+                "type": "Action.OpenUrl",
+                "url": `${buildInfo.url}/consoleText`,
+                "title": "Show log"
+            }]
+        }
+    }];
 
-// function getBuildInfoCard(text, buildInfo) {
-
-//     items = [{
-//         "type": "TextBlock",
-//         "text": text,
-//         "weight": "bolder",
-//         "size": "medium"
-//     }];
-//     if (hasChanges(buildInfo)) {
-//         items.push(getChanges(buildInfo));
-//     }
-//     const cards = [
-//     {
-//         'contentType': 'application/vnd.microsoft.card.adaptive',
-//         'content': {
-//             "$schema": "http://adaptivecards.io/schemas/adaptive-card.json",
-//             "type": "AdaptiveCard",
-//             "version": "1.0",
-//             "body": items,
-//             "actions": [{
-//                 "type": "Action.OpenUrl",
-//                 "url": `${buildInfo.url}/consoleText`,
-//                 "title": "Show log"
-//             }]
-//         }
-//     }];
-
-//     return cards;
-// }
+    return cards;
+}
 
 function hasChanges(buildInfo) {
     return (buildInfo.changeSet !== null && buildInfo.changeSet !== undefined);
 }
+
 function getChanges(buildInfo) {
     if (buildInfo.changeSet) {
         return {
@@ -203,7 +197,7 @@ function getChanges(buildInfo) {
     return undefined;
 }
 
-function say (address, text, cards) {
+function say(address, text, cards) {
     let message = new builder.Message()
     .address(address)
     if (cards !== undefined && cards !== null) {
