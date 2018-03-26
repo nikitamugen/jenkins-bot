@@ -8,12 +8,16 @@ const mapTo = require('rxjs/operators').mapTo;
 const map = require('rxjs/operators').map;
 const delay = require('rxjs/operators').delay;
 const take = require('rxjs/operators').take;
+const last = require('rxjs/operators').last;
 const throttle = require('rxjs/operators').throttle;
 const groupBy = require('rxjs/operators').groupBy;
 const mergeMap = require('rxjs/operators').mergeMap;
 const catchError = require('rxjs/operators').catchError;
 const interval = require('rxjs/observable/interval').interval;
+const sample = require('rxjs/operators/sample').sample;
+const combineLatest = require('rxjs/observable/combineLatest').combineLatest;
 const debounceTime = require('rxjs/operators/debounceTime').debounceTime;
+const filter = require('rxjs/operators').filter;
 
 const assert = require('assert');
 const unirest = require('unirest');
@@ -59,7 +63,7 @@ class Settings {
     }
     getJenkinsCrumb() {
         const crumb = nconf.get('crumb');
-        const defaultCrumb = 'a061bce7dbded1cdc4a3bd443ee2ed42';
+        const defaultCrumb = undefined;
         return (crumb || defaultCrumb);
     }
 }
@@ -82,41 +86,46 @@ class Connection {
         const empty = of(null);
         this.builds = merge(
             empty.pipe(
-                mapTo({url: '/job/test-build/34/', result: QUEUED}),
+                mapTo({url: '/job/testbuild1/34/', result: QUEUED}),
                 delay(200)
             ),
             empty.pipe(
-                mapTo({url: '/job/test-build/34/', result: RUNNING}),
+                mapTo({url: '/job/testbuild1/34/', result: RUNNING}),
                 delay(1000)
             ),
             empty.pipe(
-                mapTo({url: '/job/test-build/34/', result: SUCCESS}),
+                mapTo({url: '/job/testbuild1/34/', result: SUCCESS}),
                 delay(2000)
             ),
             empty.pipe(
-                mapTo({url: '/job/test-build/35/', result: QUEUED}),
+                mapTo({url: '/job/testbuild1/35/', result: QUEUED}),
                 delay(100)
             ),
             empty.pipe(
-                mapTo({url: '/job/test-build/35/', result: RUNNING}),
+                mapTo({url: '/job/testbuild1/35/', result: RUNNING}),
                 delay(150)
             ),
             empty.pipe(
-                mapTo({url: '/job/test-build/35/', result: FAULT}),
+                mapTo({url: '/job/testbuild1/35/', result: FAULT}),
                 delay(200)
             )
         );
     }
 
     getBuilds() {
-        const groupedById = this.builds.pipe(
-            groupBy( e => e.url )
+        const clearQuickStages = this.builds.pipe(
+            groupBy( e => e.url ),
+            mergeMap( group => group.pipe( debounceTime(5000) ) ),
         );
-        const clearedQuickStages = groupedById.pipe( 
-            mergeMap( group => group.pipe( debounceTime(1000) ) ),
-            mergeMap( e => fromPromise(this._getBuildInfo(e)) )
+        const fullInfo = clearQuickStages.pipe( 
+            mergeMap( e => fromPromise(this._getBuildInfo(e)) ),
+            filter( buildInfo => this._NotEmpty(buildInfo.result) ),
         );
-        return clearedQuickStages;
+        return fullInfo;
+    }
+
+    _NotEmpty(some) {
+        return (some !== undefined && some !== null && some !== "")
     }
 
     _getBuildInfo(e) {
@@ -182,7 +191,7 @@ class Connection {
             }, false);
             this.eventSource.addEventListener('job', e => {
                 const payload = JSON.parse(e.data);
-                this.builds.next(payload.jenkins_object_url);
+                this.builds.next({url: payload.jenkins_object_url});
             }, false);
         });
     }

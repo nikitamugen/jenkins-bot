@@ -31,8 +31,8 @@ function _addKnownAddressAndRule(address, regExpString) {
     nconf.set('knownAddress', addressesString);
 })();
 
-Setup Restify Server
-
+// Setup Restify Server
+//
 const server = restify.createServer();
 const port = nconf.any('port', 'PORT');
 server.name = "localhost";
@@ -122,13 +122,13 @@ function (session, results) {
 const jenkinsClient = require('./jenkinsClient.js');
 const connection = new jenkinsClient.Connection();
 
-// (function test() {
-//     connection.test();
-//     connection.getBuilds().subscribe(console.log);
-// })();
+ // (function test() {
+ //     connection.test();
+ //     connection.getBuilds().subscribe(console.log);
+ // })();
 connection.open()
-connection.subscribe(buildInfo => {
-    if (buildInfo.result == QUEUED) {
+connection.getBuilds().subscribe(buildInfo => {
+    if (buildInfo.result == jenkinsClient.QUEUED) {
         text = `Задача ${buildInfo.fullDisplayName} была поставлена в очередь.`;
     } else if (buildInfo.result == jenkinsClient.RUNNING) {
         text = `Задача ${buildInfo.fullDisplayName} выполняется.`;
@@ -139,6 +139,7 @@ connection.subscribe(buildInfo => {
     } else {
         return;
     }
+    console.log(buildInfo, text);
 
     const cards = createCards(text, buildInfo);
     knownAdresses.forEach(knownAddress => {
@@ -157,6 +158,9 @@ function createCards(text, buildInfo) {
         "weight": "bolder",
         "size": "medium"
     }];
+    if (buildInfo.description) {
+        items.push(getDescription(buildInfo));   
+    }
     if (hasChanges(buildInfo)) {
         items.push(getChanges(buildInfo));
     }
@@ -191,10 +195,17 @@ function getChanges(buildInfo) {
                 {title: 'commit', value: item.commitId.substring(0, 6)},
                 {title: 'author', value: item.author.fullName},
                 {title: 'message', value: item.msg},
-                ])
+            ])
         };
     }
     return undefined;
+}
+
+function getDescription(buildInfo) {
+    return {
+        "type": "TextBlock",
+        "text": buildInfo.description
+    };
 }
 
 function say(address, text, cards) {
